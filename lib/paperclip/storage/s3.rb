@@ -268,7 +268,9 @@ module Paperclip
         basename = File.basename(filename, extname)
         file = Tempfile.new([basename, extname])
         file.binmode
-        file.write(s3_object(style).read)
+        with_ssl_retry do
+          file.write(s3_object(style).read)
+        end
         file.rewind
         return file
       end
@@ -292,7 +294,9 @@ module Paperclip
               write_options[:server_side_encryption] = @s3_server_side_encryption
             end
             write_options.merge!(@s3_headers)
-            s3_object(style).write(file, write_options)
+            with_ssl_retry do
+              s3_object(style).write(file, write_options)
+            end 
           rescue AWS::S3::Errors::NoSuchBucket => e
             create_bucket
             retry
@@ -342,6 +346,18 @@ module Paperclip
         s3_protocol(style_name) == "https"
       end
       private :use_secure_protocol?
+
+      # Rescue AWS S3 SSL Errors and retry automatically
+      def with_ssl_retry
+        ssl_retry = 0
+        yield
+      rescue OpenSSL::SSL::SSLError
+        ssl_retry += 1
+        retry if ssl_retry <= 3
+        raise
+      end
+      private :with_ssl_retry
+
     end
   end
 end
